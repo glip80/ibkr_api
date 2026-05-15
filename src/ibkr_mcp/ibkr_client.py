@@ -1,25 +1,28 @@
 """
 Async IBKR client wrapper around ib_async.
 
+Reference: https://github.com/ib-api-reloaded/ib_async
+
 Manages connection lifecycle and exposes typed methods for:
-  - Historical bars (OHLCV)
-  - Fundamental data (financials summary)
-  - Earnings calendar / EPS history
+  - Historical bars (OHLCV) via reqHistoricalDataAsync
+  - Fundamental data (financials) via reqFundamentalDataAsync
+  - Earnings / analyst estimates (RESC report) via reqFundamentalDataAsync
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
-from ib_async import IB, Contract, Stock, BarData, util
+from ib_async import IB, Stock, util
+from ib_async.contract import Contract
+from ib_async.objects import BarData
 
 logger = logging.getLogger(__name__)
 
-# Default connection parameters — override via env vars or constructor args
+# Default connection parameters — override via Config / env vars
 _DEFAULT_HOST = "127.0.0.1"
-_DEFAULT_PORT = 7497          # TWS paper-trading port; 4001 for IB Gateway
+_DEFAULT_PORT = 7497      # 7497 = TWS paper-trading; 7496 = TWS live; 4001 = IB Gateway
 _DEFAULT_CLIENT_ID = 1
-_DEFAULT_TIMEOUT = 30         # seconds to wait for a response
+_DEFAULT_TIMEOUT = 30     # seconds
 
 
 class IBKRClient:
@@ -30,11 +33,13 @@ class IBKRClient:
     host:
         TWS / IB Gateway host address.
     port:
-        TWS / IB Gateway port (7496 live, 7497 paper, 4001 gateway).
+        API port. Use ``7497`` for TWS paper, ``7496`` for TWS live,
+        ``4001`` for IB Gateway.
     client_id:
-        Unique client identifier.  Multiple clients need distinct IDs.
+        Unique integer client identifier. Every simultaneous connection
+        to the same TWS session needs a different ID.
     timeout:
-        Request timeout in seconds.
+        Seconds to wait for a connect / request response.
     """
 
     def __init__(
@@ -50,19 +55,28 @@ class IBKRClient:
         self.timeout = timeout
         self._ib = IB()
 
-    # ── connection helpers ───────────────────────────────────────────────────
+    # ── connection ────────────────────────────────────────────────────────────
 
     async def connect(self) -> None:
-        """Establish connection to TWS / IB Gateway."""
+        """Establish connection to TWS / IB Gateway (no-op if already connected)."""
         if self._ib.isConnected():
-            logger.debug("Already connected to IBKR")
+            logger.debug("Already connected to IBKR at %s:%s", self.host, self.port)
             return
-        logger.info("Connecting to IBKR %s:%s (client_id=%s)", self.host, self.port, self.client_id)
-        await self._ib.connectAsync(self.host, self.port, clientId=self.client_id, timeout=self.timeout)
+        logger.info(
+            "Connecting to IBKR at %s:%s (clientId=%s)", self.host, self.port, self.client_id
+        )
+        # connectAsync signature:
+        #   connectAsync(host, port, clientId, timeout=4, readonly=False, account='')
+        await self._ib.connectAsync(
+            self.host,
+            self.port,
+            clientId=self.client_id,
+            timeout=self.timeout,
+        )
         logger.info("Connected to IBKR")
 
     async def disconnect(self) -> None:
-        """Gracefully close the IBKR connection."""
+        """Gracefully close the connection."""
         if self._ib.isConnected():
             self._ib.disconnect()
             logger.info("Disconnected from IBKR")
@@ -74,20 +88,27 @@ class IBKRClient:
     async def __aexit__(self, *_: Any) -> None:
         await self.disconnect()
 
-    # ── contract resolution ──────────────────────────────────────────────────
+    # ── helpers ───────────────────────────────────────────────────────────────
 
-    def _stock_contract(self, symbol: str, exchange: str = "SMART", currency: str = "USD") -> Stock:
-        """Build a :class:`ib_async.Stock` contract for *symbol*."""
+    def _make_stock(self, symbol: str, exchange: str = "SMART", currency: str = "USD") -> Stock:
+        """Construct a :class:`ib_async.Stock` contract."""
         return Stock(symbol.upper(), exchange, currency)
 
     async def _qualify(self, contract: Contract) -> Contract:
-        """Resolve and validate a contract against IBKR servers."""
+        """Resolve a contract against IBKR servers.
+
+        Raises
+        ------
+        ValueError
+            When IBKR cannot find a matching contract.
+        """
         contracts = await self._ib.qualifyContractsAsync(contract)
         if not contracts:
-            raise ValueError(f"Could not qualify contract: {contract.symbol}")
+            raise ValueError(f"Could not qualify contract for symbol '{contract.symbol}'")
+        logger.debug("Qualified contract: %s (conId=%s)", contract.symbol, contracts[0].conId)
         return contracts[0]
 
-    # ── historical bars ──────────────────────────────────────────────────────
+    # ── historical bars ───────────────────────────────────────────────────────
 
     async def get_historical_bars(
         self,
@@ -100,39 +121,52 @@ class IBKRClient:
         exchange: str = "SMART",
         currency: str = "USD",
     ) -> list[dict[str, Any]]:
-        """Fetch OHLCV bars from IBKR.
+        """Fetch historical OHLCV bars from IBKR.
+
+        Wraps ``IB.reqHistoricalDataAsync``.
 
         Parameters
         ----------
         symbol:
-            Ticker symbol (e.g. ``"AAPL"``).
+            Ticker, e.g. ``"AAPL"``.
         end_datetime:
-            End of the requested period (``"YYYYMMDD HH:MM:SS"``).
-            Empty string means *now*.
+            End of the requested period in TWS format ``"YYYYMMDD HH:MM:SS"``
+            or ``""`` for *now*.
         duration:
-            How far back to go (``"1 Y"``, ``"6 M"``, ``"30 D"``).
+            How far back to go — ``"1 Y"``, ``"6 M"``, ``"30 D"``, ``"5 D"``.
+            Full list in IBKR docs: Historical Data Duration String.
         bar_size:
-            Bar granularity (``"1 min"``, ``"5 mins"``, ``"1 hour"``, ``"1 day"``).
+            Bar granularity — ``"1 day"``, ``"1 hour"``, ``"30 mins"``,
+            ``"5 mins"``, ``"1 min"``.
+            Full list: Historical Bar Size Settings.
         what_to_show:
-            Data type — ``"ADJUSTED_LAST"`` | ``"TRADES"`` | ``"MIDPOINT"``.
+            ``"ADJUSTED_LAST"`` (split+dividend adjusted close) |
+            ``"TRADES"`` (unadjusted last trade price) |
+            ``"MIDPOINT"`` | ``"BID"`` | ``"ASK"``.
         use_rth:
-            ``True`` = regular trading hours only.
+            ``True`` = regular trading hours only (default).
         exchange:
-            Routing exchange (default ``"SMART"``).
+            IBKR routing exchange (default ``"SMART"``).
         currency:
-            Currency denomination (default ``"USD"``).
+            ISO currency code (default ``"USD"``).
 
         Returns
         -------
         list[dict]
-            Each dict has keys: ``date``, ``open``, ``high``, ``low``,
-            ``close``, ``volume``, ``average``, ``barCount``.
+            Each dict contains: ``date``, ``open``, ``high``, ``low``,
+            ``close``, ``volume``, ``average``, ``bar_count``.
         """
-        contract = await self._qualify(self._stock_contract(symbol, exchange, currency))
+        contract = await self._qualify(self._make_stock(symbol, exchange, currency))
         logger.info(
-            "Requesting historical bars: symbol=%s duration=%s bar_size=%s what_to_show=%s",
-            symbol, duration, bar_size, what_to_show,
+            "reqHistoricalData: symbol=%s duration=%s bar_size=%s what_to_show=%s use_rth=%s",
+            symbol, duration, bar_size, what_to_show, use_rth,
         )
+
+        # reqHistoricalDataAsync signature:
+        #   reqHistoricalDataAsync(
+        #       contract, endDateTime, durationStr, barSizeSetting,
+        #       whatToShow, useRTH, formatDate=1, keepUpToDate=False, chartOptions=[]
+        #   )
         bars: list[BarData] = await self._ib.reqHistoricalDataAsync(
             contract,
             endDateTime=end_datetime,
@@ -140,9 +174,10 @@ class IBKRClient:
             barSizeSetting=bar_size,
             whatToShow=what_to_show,
             useRTH=use_rth,
-            formatDate=1,
+            formatDate=1,        # 1 = "YYYYMMDD HH:MM:SS" string; 2 = epoch seconds
             keepUpToDate=False,
         )
+
         return [
             {
                 "date": str(b.date),
@@ -157,7 +192,7 @@ class IBKRClient:
             for b in bars
         ]
 
-    # ── fundamental data ─────────────────────────────────────────────────────
+    # ── fundamental data ──────────────────────────────────────────────────────
 
     async def get_fundamentals(
         self,
@@ -166,32 +201,53 @@ class IBKRClient:
         exchange: str = "SMART",
         currency: str = "USD",
     ) -> str:
-        """Fetch fundamental data XML for *symbol*.
+        """Fetch fundamental data XML from IBKR.
+
+        Wraps ``IB.reqFundamentalDataAsync``.
 
         Parameters
         ----------
         symbol:
-            Ticker symbol.
+            Ticker, e.g. ``"AAPL"``.
         report_type:
-            One of ``"ReportsFinSummary"``, ``"ReportsOwnership"``,
-            ``"ReportSnapshot"``, ``"RESC"`` (analyst estimates),
-            ``"CalendarReport"`` (earnings calendar).
+            One of:
+
+            * ``"ReportsFinSummary"`` — financial highlights (income, balance sheet, cash flow)
+            * ``"ReportSnapshot"``    — company overview snapshot
+            * ``"ReportsOwnership"``  — institutional ownership report
+            * ``"CalendarReport"``    — earnings calendar dates
+            * ``"RESC"``              — analyst estimates / consensus EPS
+
+            Note: availability depends on your IBKR market data subscriptions.
         exchange:
             Routing exchange.
         currency:
-            Currency.
+            Currency denomination.
 
         Returns
         -------
         str
-            Raw XML string from IBKR.
+            Raw XML string from IBKR Refinitiv/Morningstar data feed.
         """
-        contract = await self._qualify(self._stock_contract(symbol, exchange, currency))
-        logger.info("Requesting fundamentals: symbol=%s report_type=%s", symbol, report_type)
-        xml: str = await self._ib.reqFundamentalDataAsync(contract, reportType=report_type)
+        contract = await self._qualify(self._make_stock(symbol, exchange, currency))
+        logger.info(
+            "reqFundamentalData: symbol=%s report_type=%s", symbol, report_type
+        )
+
+        # reqFundamentalDataAsync signature:
+        #   reqFundamentalDataAsync(contract, reportType, fundamentalDataOptions=[])
+        xml: str = await self._ib.reqFundamentalDataAsync(
+            contract,
+            reportType=report_type,
+        )
+        if not xml:
+            raise ValueError(
+                f"Empty fundamental data for {symbol}/{report_type}. "
+                "Check your IBKR market data subscriptions."
+            )
         return xml
 
-    # ── earnings ─────────────────────────────────────────────────────────────
+    # ── earnings ──────────────────────────────────────────────────────────────
 
     async def get_earnings(
         self,
@@ -199,9 +255,45 @@ class IBKRClient:
         exchange: str = "SMART",
         currency: str = "USD",
     ) -> str:
-        """Fetch earnings / analyst estimate XML (RESC report) for *symbol*.
+        """Fetch earnings / analyst estimate data (RESC report) for *symbol*.
 
-        Returns raw XML; callers should parse with the utility helpers or
-        store as-is for later XML parsing.
+        The RESC report contains historical EPS actuals and forward analyst
+        consensus estimates.  Returns raw XML; callers should parse with
+        ``xml.etree.ElementTree`` or store as-is.
         """
-        return await self.get_fundamentals(symbol, report_type="RESC", exchange=exchange, currency=currency)
+        logger.info("get_earnings: symbol=%s (RESC report)", symbol)
+        return await self.get_fundamentals(
+            symbol,
+            report_type="RESC",
+            exchange=exchange,
+            currency=currency,
+        )
+
+    # ── market data type ──────────────────────────────────────────────────────
+
+    def set_market_data_type(self, data_type: int = 1) -> None:
+        """Configure market data subscription type.
+
+        Must be called **after** connecting.
+
+        Parameters
+        ----------
+        data_type:
+            * ``1`` — Real-time (requires live subscription)
+            * ``2`` — Frozen (last available real-time snapshot)
+            * ``3`` — Delayed (~15 min, no subscription required)
+            * ``4`` — Delayed frozen (last available delayed data)
+
+        Notes
+        -----
+        For historical data this setting has no effect; it only applies
+        to :meth:`ib_async.IB.reqMktData` live-streaming calls.
+        Call with ``data_type=3`` during development if you lack a
+        live data subscription.
+
+        Example
+        -------
+        >>> client.set_market_data_type(3)   # use free delayed data
+        """
+        self._ib.reqMarketDataType(data_type)
+        logger.info("Market data type set to %d", data_type)
