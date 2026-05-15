@@ -11,9 +11,11 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 
 dependencies = [
-    "ib-async>=1.0.1",          # async IBKR API wrapper
-    "mcp>=1.0.0",               # Model Context Protocol SDK
-    "aiosqlite>=0.20.0",        # async SQLite driver
+    # PyPI package name is ib_async (underscore), not ib-async
+    # https://github.com/ib-api-reloaded/ib_async
+    "ib_async>=2.0.1",
+    "mcp>=1.0.0",
+    "aiosqlite>=0.20.0",
 ]
 
 [project.optional-dependencies]

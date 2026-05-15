@@ -28,6 +28,10 @@ exposes **Interactive Brokers** market data as AI-callable tools via
 
 ## Prerequisites
 
+> **ib_async package**: `pip install ib_async` (underscore, not hyphen).
+> Maintained fork of `ib_insync` — [ib-api-reloaded/ib_async](https://github.com/ib-api-reloaded/ib_async).
+> Requires Python ≥ 3.10. Latest: v2.0.1.
+
 - Python 3.12+
 - TWS (Trader Workstation) or IB Gateway running locally or accessible over the network.
 - In TWS: `Edit → Global Configuration → API → Settings` → enable **Socket port** and check **Allow connections from localhost**.
