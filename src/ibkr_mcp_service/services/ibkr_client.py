@@ -4,7 +4,7 @@ import asyncio
 from functools import lru_cache
 
 import structlog
-from ib_async import IB, Contract, BarDataList
+from ib_async import IB, BarDataList, Contract
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ibkr_mcp_service.config import get_settings

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ibkr_mcp_service.db.base import Base

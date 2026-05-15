@@ -10,8 +10,12 @@ from mcp.types import TextContent, Tool
 
 from ibkr_mcp_service.db.base import get_session_factory
 from ibkr_mcp_service.models.domain import (
-    BarSize, EarningsRequest, FundamentalsRequest,
-    QuoteRequest, SecType, WhatToShow,
+    BarSize,
+    EarningsRequest,
+    FundamentalsRequest,
+    QuoteRequest,
+    SecType,
+    WhatToShow,
 )
 from ibkr_mcp_service.services.fundamentals_service import FundamentalsService
 from ibkr_mcp_service.services.ibkr_client import get_ibkr_client

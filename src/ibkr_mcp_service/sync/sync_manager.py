@@ -1,17 +1,25 @@
 """Background sync process – periodically refreshes cached data from IBKR."""
 
 import asyncio
-from datetime import datetime
+from collections.abc import Sequence
+from typing import Any
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ibkr_mcp_service.config import get_settings
 from ibkr_mcp_service.db.base import get_session_factory
-from ibkr_mcp_service.db.orm_models import OHLCVBarORM
+from ibkr_mcp_service.db.orm_models import EarningsORM, FundamentalsORM, OHLCVBarORM
 from ibkr_mcp_service.models.domain import (
-    QuoteRequest, BarSize, WhatToShow, SecType,
+    BarSize,
+    EarningsRequest,
+    FundamentalsRequest,
+    QuoteRequest,
+    SecType,
+    WhatToShow,
 )
+from ibkr_mcp_service.services.fundamentals_service import FundamentalsService
 from ibkr_mcp_service.services.ibkr_client import get_ibkr_client
 from ibkr_mcp_service.services.quote_service import QuoteService
 
@@ -19,7 +27,8 @@ log = structlog.get_logger(__name__)
 
 
 class SyncManager:
-    """Discovers all symbols in the DB and refreshes their data periodically."""
+    """Discovers all known symbols across every data table and refreshes
+    their data from IBKR periodically, bypassing the read cache."""
 
     def __init__(self) -> None:
         self._settings = get_settings()
@@ -41,29 +50,21 @@ class SyncManager:
         self._running = False
 
     async def _sync_all(self) -> None:
-        """Run one full sync cycle over all known symbols."""
+        """Run one full sync cycle over all known symbols and data types."""
         log.info("sync_cycle_started")
         factory = get_session_factory()
         ibkr = get_ibkr_client()
 
-        # Collect distinct symbol combos from ohlcv_bars
         session = factory()
         try:
-            result = await session.execute(
-                select(
-                    OHLCVBarORM.symbol,
-                    OHLCVBarORM.sec_type,
-                    OHLCVBarORM.currency,
-                    OHLCVBarORM.bar_size,
-                    OHLCVBarORM.what_to_show,
-                    OHLCVBarORM.adjusted,
-                ).distinct()
-            )
-            quote_keys = result.fetchall()
+            ohlcv_keys = await self._get_ohlcv_keys(session)
+            fund_keys = await self._get_fundamentals_keys(session)
+            earn_symbols = await self._get_earnings_symbols(session)
         finally:
             await session.close()
 
-        for row in quote_keys:
+        # ── Sync OHLCV bars ──────────────────────────────────────────────
+        for row in ohlcv_keys:
             try:
                 req = QuoteRequest(
                     symbol=row.symbol,
@@ -77,11 +78,98 @@ class SyncManager:
                 session = factory()
                 try:
                     svc = QuoteService(session, ibkr)
-                    resp = await svc.get_quotes(req)
-                    log.info("sync_refreshed_quote", symbol=req.symbol, bars=len(resp.bars))
+                    resp = await svc.get_quotes(req, force_refresh=True)
+                    log.info(
+                        "sync_refreshed_quotes",
+                        symbol=req.symbol,
+                        bars=len(resp.bars),
+                    )
                 finally:
                     await session.close()
             except Exception:
-                log.exception("sync_failed_for_symbol", symbol=row.symbol)
+                log.exception("sync_quotes_failed", symbol=row.symbol)
 
-        log.info("sync_cycle_completed", symbols_processed=len(quote_keys))
+        # ── Sync fundamentals ────────────────────────────────────────────
+        for row in fund_keys:
+            try:
+                req = FundamentalsRequest(
+                    symbol=row.symbol,
+                    sec_type=SecType(row.sec_type),
+                    currency=row.currency,
+                    report_type=row.report_type,
+                )
+                session = factory()
+                try:
+                    svc = FundamentalsService(session, ibkr)
+                    resp = await svc.get_fundamentals(req, force_refresh=True)
+                    log.info(
+                        "sync_refreshed_fundamentals",
+                        symbol=req.symbol,
+                        report_type=req.report_type,
+                    )
+                finally:
+                    await session.close()
+            except Exception:
+                log.exception("sync_fundamentals_failed", symbol=row.symbol)
+
+        # ── Sync earnings ───────────────────────────────────────────────
+        for row in earn_symbols:
+            try:
+                req = EarningsRequest(
+                    symbol=row.symbol,
+                    sec_type=SecType(row.sec_type),
+                    currency=row.currency,
+                )
+                session = factory()
+                try:
+                    svc = FundamentalsService(session, ibkr)
+                    resp = await svc.get_earnings(req, force_refresh=True)
+                    log.info(
+                        "sync_refreshed_earnings",
+                        symbol=req.symbol,
+                    )
+                finally:
+                    await session.close()
+            except Exception:
+                log.exception("sync_earnings_failed", symbol=row.symbol)
+
+        log.info(
+            "sync_cycle_completed",
+            ohlcv_count=len(ohlcv_keys),
+            fundamentals_count=len(fund_keys),
+            earnings_count=len(earn_symbols),
+        )
+
+    async def _get_ohlcv_keys(self, session: AsyncSession) -> Sequence[Any]:
+        result = await session.execute(
+            select(
+                OHLCVBarORM.symbol,
+                OHLCVBarORM.sec_type,
+                OHLCVBarORM.currency,
+                OHLCVBarORM.bar_size,
+                OHLCVBarORM.what_to_show,
+                OHLCVBarORM.adjusted,
+            ).distinct()
+        )
+        return result.fetchall()  # type: ignore[no-any-return]
+
+    async def _get_fundamentals_keys(self, session: AsyncSession) -> Sequence[Any]:
+        result = await session.execute(
+            select(
+                FundamentalsORM.symbol,
+                FundamentalsORM.sec_type,
+                FundamentalsORM.currency,
+                FundamentalsORM.report_type,
+            ).distinct()
+        )
+        return result.fetchall()  # type: ignore[no-any-return]
+
+    async def _get_earnings_symbols(self, session: AsyncSession) -> Sequence[Any]:
+        result = await session.execute(
+            select(
+                EarningsORM.symbol,
+                EarningsORM.sec_type,
+                EarningsORM.currency,
+            ).distinct()
+        )
+        return result.fetchall()  # type: ignore[no-any-return]

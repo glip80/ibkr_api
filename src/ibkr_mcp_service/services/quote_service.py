@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ibkr_mcp_service.db.repository import QuoteRepository
 from ibkr_mcp_service.models.domain import (
-    OHLCVBar, QuoteRequest, QuoteResponse,
+    OHLCVBar,
+    QuoteRequest,
+    QuoteResponse,
 )
 from ibkr_mcp_service.services.ibkr_client import IBKRClient
 
@@ -19,22 +21,27 @@ class QuoteService:
         self._repo = QuoteRepository(session)
         self._ibkr = ibkr
 
-    async def get_quotes(self, req: QuoteRequest) -> QuoteResponse:
-        """Return quotes from cache if available, otherwise fetch from IBKR."""
-        cached_bars = await self._repo.get_bars(
-            symbol=req.symbol, sec_type=req.sec_type.value,
-            currency=req.currency, bar_size=req.bar_size.value,
-            what_to_show=req.what_to_show.value, adjusted=req.adjusted,
-        )
+    async def get_quotes(self, req: QuoteRequest, force_refresh: bool = False) -> QuoteResponse:
+        """Return quotes from cache if available, otherwise fetch from IBKR.
 
-        if cached_bars:
-            log.info("cache_hit_quotes", symbol=req.symbol, count=len(cached_bars))
-            return QuoteResponse(
+        When *force_refresh* is ``True`` the cache is skipped and fresh data
+        is always fetched from IBKR (the result is still persisted).
+        """
+        if not force_refresh:
+            cached_bars = await self._repo.get_bars(
                 symbol=req.symbol, sec_type=req.sec_type.value,
                 currency=req.currency, bar_size=req.bar_size.value,
                 what_to_show=req.what_to_show.value, adjusted=req.adjusted,
-                bars=cached_bars, cached=True,
             )
+
+            if cached_bars:
+                log.info("cache_hit_quotes", symbol=req.symbol, count=len(cached_bars))
+                return QuoteResponse(
+                    symbol=req.symbol, sec_type=req.sec_type.value,
+                    currency=req.currency, bar_size=req.bar_size.value,
+                    what_to_show=req.what_to_show.value, adjusted=req.adjusted,
+                    bars=cached_bars, cached=True,
+                )
 
         # Cache miss – fetch from live API
         contract = self._ibkr.make_contract(

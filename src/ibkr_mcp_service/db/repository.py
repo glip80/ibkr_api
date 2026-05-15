@@ -1,16 +1,18 @@
 """Data Access Layer for the IBKR MCP service."""
 
-from datetime import datetime, timezone
-from typing import Sequence
+from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ibkr_mcp_service.db.orm_models import OHLCVBarORM, FundamentalsORM, EarningsORM
+from ibkr_mcp_service.db.orm_models import EarningsORM, FundamentalsORM, OHLCVBarORM
 from ibkr_mcp_service.models.domain import (
-    OHLCVBar, QuoteResponse, FundamentalsResponse, EarningsResponse
+    EarningsResponse,
+    FundamentalsResponse,
+    OHLCVBar,
+    QuoteResponse,
 )
 
 log = structlog.get_logger(__name__)
@@ -51,7 +53,7 @@ class QuoteRepository:
         if not resp.bars:
             return 0
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         rows = [
             {
                 "symbol": resp.symbol, "sec_type": resp.sec_type,
@@ -93,7 +95,7 @@ class FundamentalsRepository:
         return result.scalar_one_or_none()
 
     async def upsert(self, resp: FundamentalsResponse) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stmt = insert(FundamentalsORM).values(
             symbol=resp.symbol, report_type=resp.report_type,
             xml_data=resp.xml_data, fetched_at=now,
@@ -119,7 +121,7 @@ class EarningsRepository:
         return result.scalar_one_or_none()
 
     async def upsert(self, resp: EarningsResponse) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stmt = insert(EarningsORM).values(
             symbol=resp.symbol, xml_data=resp.xml_data, fetched_at=now,
             sec_type=resp.sec_type, currency=resp.currency,

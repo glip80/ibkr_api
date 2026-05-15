@@ -2,9 +2,8 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class SecType(str, Enum):
@@ -78,8 +77,8 @@ class OHLCVBar(BaseModel):
     low: float
     close: float
     volume: float
-    wap: Optional[float] = None
-    bar_count: Optional[int] = None
+    wap: float | None = None
+    bar_count: int | None = None
 
 
 class QuoteResponse(BaseModel):
@@ -91,7 +90,7 @@ class QuoteResponse(BaseModel):
     adjusted: bool
     bars: list[OHLCVBar]
     cached: bool = False
-    fetched_at: Optional[datetime] = None
+    fetched_at: datetime | None = None
 
 
 class FundamentalsRequest(BaseModel):
@@ -114,7 +113,7 @@ class FundamentalsResponse(BaseModel):
     sec_type: str = "STK"
     currency: str = "USD"
     cached: bool = False
-    fetched_at: Optional[datetime] = None
+    fetched_at: datetime | None = None
 
 
 class EarningsRequest(BaseModel):
@@ -135,4 +134,4 @@ class EarningsResponse(BaseModel):
     sec_type: str = "STK"
     currency: str = "USD"
     cached: bool = False
-    fetched_at: Optional[datetime] = None
+    fetched_at: datetime | None = None
