@@ -1,47 +1,84 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ibkr
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ibkr_mcp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ibkr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - infra
+
+  ib:
+    container_name: ib
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+    environment:
+      TWS_USERID: ${TWS_USERID_PAPER}
+      TWS_PASSWORD_FILE: ${TWS_PASSWORD_PAPER_FILE:-}
+      TWS_USERID_PAPER: ${TWS_USERID_PAPER:-}
+      TWS_PASSWORD_PAPER_FILE: ${TWS_PASSWORD_PAPER_FILE:-}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      TWS_SETTINGS_PATH: ${TWS_SETTINGS_PATH:-}
+      TWS_ACCEPT_INCOMING: ${TWS_ACCEPT_INCOMING:-}
+      READ_ONLY_API: ${READ_ONLY_API:-}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
+      TWOFA_TIMEOUT_ACTION: ${TWOFA_TIMEOUT_ACTION:-exit}
+      BYPASS_WARNING: ${BYPASS_WARNING:-}
+      AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-}
+      AUTO_LOGOFF_TIME: ${AUTO_LOGOFF_TIME:-}
+      TWS_COLD_RESTART: ${TWS_COLD_RESTART:-}
+      SAVE_TWS_SETTINGS: ${SAVE_TWS_SETTINGS:-}
+      RELOGIN_AFTER_TWOFA_TIMEOUT: ${RELOGIN_AFTER_TWOFA_TIMEOUT:-no}
+      TWOFA_EXIT_INTERVAL: ${TWOFA_EXIT_INTERVAL:-60}
+      TIME_ZONE: ${TIME_ZONE:-Etc/UTC}
+      TZ: ${TIME_ZONE:-Etc/UTC}
+      CUSTOM_CONFIG: ${CUSTOM_CONFIG:-NO}
+      JAVA_HEAP_SIZE: ${JAVA_HEAP_SIZE:-}
+    ports:
+      - "4001:4003"
+      - "4002:4004"
+    secrets:
+      - tws_password_paper
+    networks:
+      - infra
+
   ibkr-mcp:
     build:
       context: .
-      target: runtime
-    container_name: ibkr-mcp-service
-    restart: unless-stopped
-
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ib:
+        condition: service_started
     environment:
-      # TWS / IB Gateway connection
-      # host.docker.internal routes to the Docker host where TWS runs
-      IBKR_HOST: ${IBKR_HOST:-host.docker.internal}
-      IBKR_PORT: ${IBKR_PORT:-7497}
-      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-10}
-      IBKR_TIMEOUT: ${IBKR_TIMEOUT:-30}
-
-      # Cache configuration
-      DB_PATH: /app/data/ibkr_cache.db
-      QUOTES_TTL_HOURS: ${QUOTES_TTL_HOURS:-1}
-      FUNDAMENTALS_TTL_HOURS: ${FUNDAMENTALS_TTL_HOURS:-24}
-
-      # Background sync watchlist (comma-separated tickers)
-      SYNC_WATCHLIST: ${SYNC_WATCHLIST:-AAPL,MSFT,NVDA}
-      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-3600}
-
-      # Observability
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_FORMAT: ${LOG_FORMAT:-json}
-
-    volumes:
-      # Persist SQLite database across container restarts
-      - ibkr-data:/app/data
-
-    # MCP communicates over stdio; no ports needed for the MCP protocol.
-    # Expose a metrics port if you add Prometheus instrumentation later.
-    stdin_open: true
+      DATABASE_URL: postgresql+asyncpg://ibkr:password@postgres:5432/ibkr_mcp
+      IBKR_HOST: ib
+      IBKR_PORT: 4004
+      IBKR_CLIENT_ID: 1
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    stdin_open: true  # MCP uses stdio transport
     tty: false
+    networks:
+      - infra
 
-    # Extra hosts so host.docker.internal resolves on Linux hosts
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+networks:
+  infra:
 
 volumes:
-  ibkr-data:
-    driver: local
+  pgdata:
+
+secrets:
+  tws_password_paper:
+    file: ./docker/secrets/tws_password_paper.txt
