@@ -1,201 +1,123 @@
 # IBKR MCP Service
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that
-exposes **Interactive Brokers** market data as AI-callable tools via
-[ib_async](https://github.com/erdewit/ib_async).
+MCP server exposing Interactive Brokers market data as AI tools, backed by **PostgreSQL** via **SQLAlchemy 2.0 async ORM**.
 
----
+## Tools
 
-## Features
+| Tool | Description | Key Defaults |
+|---|---|---|
+| `get_quotes` | Historical OHLCV bars | `duration="1 Y"`, `bar_size="1 day"`, `what_to_show="ADJUSTED_LAST"`, `use_rth=True` |
+| `get_fundamentals` | Financial summary XML | `report_type="ReportsFinSummary"` |
+| `get_earnings` | EPS / analyst estimates XML | RESC report |
+| `get_sync_log` | Inspect recent sync activity | `limit=50` |
+| `trigger_sync` | Force immediate refresh | `data_type="all"` |
 
-| Tool | Description |
-|---|---|
-| `get_quotes` | Historical OHLCV bars — configurable symbol, period, interval, adjusted/unadjusted |
-| `get_fundamentals` | Financial summary XML (ReportsFinSummary, ReportSnapshot, …) |
-| `get_earnings` | EPS history & analyst estimates (RESC XML) |
-| `get_sync_log` | Inspect recent background sync activity |
-| `trigger_sync` | Force immediate data refresh for a symbol |
+## Architecture
 
-**Key design principles**
+```
+MCP Client
+    │  stdio
+    ▼
+server.py (MCP Server)
+    │
+    ├── ibkr_client.py   ← ib_async wrapper
+    ├── persistence.py   ← cache-first data access (TTL-aware)
+    ├── database.py      ← SQLAlchemy engine + session factory
+    ├── models.py        ← ORM models (Mapped / mapped_column style)
+    ├── sync.py          ← background asyncio sync scheduler
+    └── config.py        ← all settings from env vars
 
-- **Cache-first** — SQLite cache with configurable TTLs prevents hammering TWS.
-- **Background sync** — optional scheduler keeps a watchlist fresh.
-- **Structured logging** — JSON (production) or human-readable (dev) via env var.
-- **Fully typed** — Python 3.12 type hints throughout.
-- **Dockerized** — multi-stage Docker image with non-root user.
+PostgreSQL
+    └── Tables: quotes, fundamentals, earnings, sync_log
+```
 
----
+## Quick Start
 
-## Prerequisites
-
-> **ib_async package**: `pip install ib_async` (underscore, not hyphen).
-> Maintained fork of `ib_insync` — [ib-api-reloaded/ib_async](https://github.com/ib-api-reloaded/ib_async).
-> Requires Python ≥ 3.10. Latest: v2.0.1.
+### Prerequisites
 
 - Python 3.12+
-- TWS (Trader Workstation) or IB Gateway running locally or accessible over the network.
-- In TWS: `Edit → Global Configuration → API → Settings` → enable **Socket port** and check **Allow connections from localhost**.
+- PostgreSQL 14+
+- TWS or IB Gateway (paper trading: port 7497)
 
----
-
-## Quick start (local)
+### Local Setup
 
 ```bash
-# 1. Clone and enter the project
+git clone <repo>
 cd ibkr-mcp-service
 
-# 2. Create a virtual environment
+# Create virtual environment
 python -m venv .venv && source .venv/bin/activate
 
-# 3. Install with dev extras
+# Install (including dev extras)
 pip install -e ".[dev]"
 
-# 4. Copy and edit the environment file
+# Configure
 cp .env.example .env
-# Edit .env: set IBKR_PORT to match your TWS setting
+# Edit .env — set IBKR_PORT and POSTGRES_PASSWORD
 
-# 5. Run unit tests (no TWS needed)
-pytest tests/unit/ -v
+# Start PostgreSQL (or use docker-compose for just postgres)
+docker compose up postgres -d
 
-# 6. Start the MCP server (connects to TWS on startup if SYNC_WATCHLIST is set)
+# Run database migrations
+alembic upgrade head
+
+# Start the MCP server
 python -m ibkr_mcp.server
 ```
 
----
-
-## Quick start (Docker)
+### Docker (full stack)
 
 ```bash
-# Build the image
-docker compose build
+cp .env.example .env   # edit POSTGRES_PASSWORD, IBKR_PORT
 
-# Start the service (edit .env first)
 docker compose up -d
-
-# Tail logs
-docker compose logs -f ibkr-mcp
+# Starts: postgres → alembic migrate → ibkr-mcp
 ```
 
----
+## Database Migrations
 
-## MCP Tool Reference
+```bash
+# Apply all pending migrations
+alembic upgrade head
 
-### `get_quotes`
+# Generate a new migration after changing models.py
+alembic revision --autogenerate -m "add new column"
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `symbol` | string | **required** | Ticker, e.g. `"AAPL"` |
-| `duration` | string | `"1 Y"` | Period: `"1 Y"`, `"6 M"`, `"30 D"` |
-| `bar_size` | string | `"1 day"` | Granularity: `"1 day"`, `"1 hour"`, `"5 mins"` |
-| `what_to_show` | string | `"ADJUSTED_LAST"` | `"ADJUSTED_LAST"` \| `"TRADES"` \| `"MIDPOINT"` |
-| `use_rth` | bool | `true` | Regular trading hours only |
-| `end_datetime` | string | `""` | End of period `"YYYYMMDD HH:MM:SS"`, empty = now |
-| `exchange` | string | `"SMART"` | Routing exchange |
-| `currency` | string | `"USD"` | Currency code |
+# Downgrade one step
+alembic downgrade -1
+```
 
-### `get_fundamentals`
+## Testing
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `symbol` | string | **required** | Ticker |
-| `report_type` | string | `"ReportsFinSummary"` | `"ReportsFinSummary"` \| `"ReportSnapshot"` \| `"ReportsOwnership"` \| `"CalendarReport"` |
-| `exchange` | string | `"SMART"` | |
-| `currency` | string | `"USD"` | |
+```bash
+# Unit tests — no PostgreSQL or TWS required (uses in-memory SQLite)
+pytest tests/unit/ -v
 
-### `get_earnings`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `symbol` | string | **required** | Ticker |
-| `exchange` | string | `"SMART"` | |
-| `currency` | string | `"USD"` | |
-
-### `trigger_sync`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `symbol` | string | **required** | Ticker |
-| `data_type` | string | `"all"` | `"quotes"` \| `"fundamentals"` \| `"earnings"` \| `"all"` |
-
----
+# Integration tests — requires PostgreSQL + running TWS
+export TEST_DATABASE_URL="postgresql+asyncpg://ibkr:ibkr@localhost:5432/ibkr_mcp_test"
+pytest tests/integration/ -v --run-integration
+```
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://ibkr:ibkr@localhost:5432/ibkr_mcp` | Full SQLAlchemy async URL |
+| `DB_ECHO` | `false` | Log all SQL statements |
 | `IBKR_HOST` | `127.0.0.1` | TWS / IB Gateway host |
-| `IBKR_PORT` | `7497` | Port (7496 live, 7497 paper, 4001 gateway) |
-| `IBKR_CLIENT_ID` | `1` | Unique client ID |
-| `IBKR_TIMEOUT` | `30` | Request timeout (seconds) |
-| `DB_PATH` | `data/ibkr_cache.db` | SQLite file path |
+| `IBKR_PORT` | `7497` | 7497 paper \| 7496 live \| 4001 gateway |
+| `IBKR_CLIENT_ID` | `1` | Must be unique per simultaneous connection |
+| `IBKR_TIMEOUT` | `30` | Request timeout in seconds |
 | `QUOTES_TTL_HOURS` | `1` | Quote cache TTL |
-| `FUNDAMENTALS_TTL_HOURS` | `24` | Fundamentals / earnings cache TTL |
+| `FUNDAMENTALS_TTL_HOURS` | `24` | Fundamental cache TTL |
 | `SYNC_WATCHLIST` | _(empty)_ | Comma-separated tickers for background sync |
 | `SYNC_INTERVAL_SECONDS` | `3600` | Background sync interval |
-| `LOG_LEVEL` | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` |
-| `LOG_FORMAT` | `text` | `text` \| `json` |
-| `MCP_SERVER_NAME` | `ibkr-mcp` | MCP server identifier |
+| `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `LOG_FORMAT` | `text` | `text` (dev) or `json` (production) |
 
----
+## TWS Prerequisites
 
-## Running Tests
-
-```bash
-# Unit tests only (no TWS needed)
-pytest tests/unit/ -v
-
-# Integration tests (requires live TWS)
-pytest tests/integration/ -v --run-integration
-
-# Full suite with coverage
-pytest --cov=ibkr_mcp --cov-report=html
-```
-
----
-
-## One-off Sync Script
-
-```bash
-# Sync specific symbols immediately
-python scripts/run_sync.py AAPL MSFT NVDA
-```
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│  MCP Client (AI agent / Claude Desktop)     │
-└─────────────────┬───────────────────────────┘
-                  │ stdio (MCP protocol)
-┌─────────────────▼───────────────────────────┐
-│  server.py  (MCP Server)                    │
-│  ┌──────────────────────────────────────┐   │
-│  │  Tool: get_quotes                    │   │
-│  │  Tool: get_fundamentals              │   │
-│  │  Tool: get_earnings                  │   │
-│  │  Tool: get_sync_log                  │   │
-│  │  Tool: trigger_sync                  │   │
-│  └────────────┬─────────────────────────┘   │
-│               │                             │
-│  ┌────────────▼────────┐  ┌──────────────┐  │
-│  │  PersistenceStore   │  │  SyncScheduler│  │
-│  │  (SQLite / aiosqlite│  │  (background) │  │
-│  └────────────┬────────┘  └──────┬───────┘  │
-└───────────────│─────────────────│───────────┘
-                │  cache miss     │ periodic
-┌───────────────▼─────────────────▼───────────┐
-│  IBKRClient  (ib_async)                     │
-└─────────────────────────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────┐
-│  TWS / IB Gateway  (localhost or network)   │
-└─────────────────────────────────────────────┘
-```
-
----
-
-## License
-
-MIT
+**Edit → Global Configuration → API → Settings**
+- Enable ActiveX and Socket Clients
+- Socket port: `7497` (paper) or `7496` (live)
+- Allow connections from localhost (or Docker gateway: `172.17.0.1`)
