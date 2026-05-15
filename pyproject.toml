@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ibkr-mcp-service"
+version = "0.1.0"
+description = "MCP service for IBKR market data via ib_async"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+dependencies = [
+    "ib-async>=1.0.1",          # async IBKR API wrapper
+    "mcp>=1.0.0",               # Model Context Protocol SDK
+    "aiosqlite>=0.20.0",        # async SQLite driver
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
+]
+
+[project.scripts]
+ibkr-mcp = "ibkr_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ibkr_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--cov=ibkr_mcp --cov-report=term-missing --cov-report=xml"
+
+[tool.coverage.run]
+source = ["ibkr_mcp"]
+omit = ["*/tests/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "ANN", "BLE", "A"]

@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  ibkr-mcp:
+    build:
+      context: .
+      target: runtime
+    container_name: ibkr-mcp-service
+    restart: unless-stopped
+
+    environment:
+      # TWS / IB Gateway connection
+      # host.docker.internal routes to the Docker host where TWS runs
+      IBKR_HOST: ${IBKR_HOST:-host.docker.internal}
+      IBKR_PORT: ${IBKR_PORT:-7497}
+      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-10}
+      IBKR_TIMEOUT: ${IBKR_TIMEOUT:-30}
+
+      # Cache configuration
+      DB_PATH: /app/data/ibkr_cache.db
+      QUOTES_TTL_HOURS: ${QUOTES_TTL_HOURS:-1}
+      FUNDAMENTALS_TTL_HOURS: ${FUNDAMENTALS_TTL_HOURS:-24}
+
+      # Background sync watchlist (comma-separated tickers)
+      SYNC_WATCHLIST: ${SYNC_WATCHLIST:-AAPL,MSFT,NVDA}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-3600}
+
+      # Observability
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+
+    volumes:
+      # Persist SQLite database across container restarts
+      - ibkr-data:/app/data
+
+    # MCP communicates over stdio; no ports needed for the MCP protocol.
+    # Expose a metrics port if you add Prometheus instrumentation later.
+    stdin_open: true
+    tty: false
+
+    # Extra hosts so host.docker.internal resolves on Linux hosts
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  ibkr-data:
+    driver: local
