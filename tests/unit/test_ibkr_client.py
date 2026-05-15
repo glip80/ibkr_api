@@ -1,6 +1,6 @@
 """Unit tests for IBKRClient connection and data-fetching logic."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

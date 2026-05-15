@@ -4,7 +4,12 @@ import pytest
 from pydantic import ValidationError
 
 from ibkr_mcp_service.models.domain import (
-    BarSize, QuoteRequest, FundamentalsRequest, EarningsRequest, SecType, WhatToShow,
+    BarSize,
+    EarningsRequest,
+    FundamentalsRequest,
+    QuoteRequest,
+    SecType,
+    WhatToShow,
 )
 
 

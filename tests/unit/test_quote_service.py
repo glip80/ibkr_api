@@ -1,12 +1,13 @@
 """Unit tests for QuoteService cache-first logic."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ibkr_mcp_service.models.domain import (
-    BarSize, OHLCVBar, QuoteRequest, QuoteResponse, SecType, WhatToShow,
+    OHLCVBar,
+    QuoteRequest,
 )
 from ibkr_mcp_service.services.quote_service import QuoteService
 
@@ -25,7 +26,7 @@ def mock_ibkr():
 def sample_bars():
     return [
         OHLCVBar(
-            date=datetime(2025, 6, 1, tzinfo=timezone.utc),
+            date=datetime(2025, 6, 1, tzinfo=UTC),
             open=200.0, high=205.0, low=198.0, close=203.0, volume=1_000_000,
         )
     ]
@@ -56,7 +57,7 @@ async def test_get_quotes_fetches_from_ibkr_on_cache_miss(mock_session, mock_ibk
 
     # Simulate raw ib_async BarData-like object
     raw_bar = MagicMock()
-    raw_bar.date = datetime(2025, 6, 1, tzinfo=timezone.utc)
+    raw_bar.date = datetime(2025, 6, 1, tzinfo=UTC)
     raw_bar.open = 250.0
     raw_bar.high = 260.0
     raw_bar.low = 248.0

@@ -1,12 +1,12 @@
 """Pydantic models for the IBKR MCP service domain."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, field_validator
 
 
-class SecType(str, Enum):
+class SecType(StrEnum):
     STK = "STK"
     OPT = "OPT"
     FUT = "FUT"
@@ -17,7 +17,7 @@ class SecType(str, Enum):
     WAR = "WAR"
 
 
-class BarSize(str, Enum):
+class BarSize(StrEnum):
     S1 = "1 sec"
     S5 = "5 secs"
     S15 = "15 secs"
@@ -38,7 +38,7 @@ class BarSize(str, Enum):
     MON1 = "1 month"
 
 
-class WhatToShow(str, Enum):
+class WhatToShow(StrEnum):
     TRADES = "TRADES"
     MIDPOINT = "MIDPOINT"
     BID = "BID"

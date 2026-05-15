@@ -1,17 +1,18 @@
 """Integration test to verify connection to IB Gateway running in Docker."""
 
-import os
-import pytest
 import asyncio
+
+import pytest
 import structlog
-from ibkr_mcp_service.services.ibkr_client import IBKRClient
+
 from ibkr_mcp_service.config import Settings
-from ibkr_mcp_service.models.domain import QuoteRequest, SecType, BarSize, WhatToShow
+from ibkr_mcp_service.services.ibkr_client import IBKRClient
 
 log = structlog.get_logger(__name__)
 
+
 @pytest.mark.asyncio
-async def test_ib_gateway_docker_connection():
+async def test_ib_gateway_docker_connection() -> None:
     """
     Test connection to the IB Gateway container.
     By default, docker-compose maps 4001:4003.
@@ -35,7 +36,7 @@ async def test_ib_gateway_docker_connection():
             if client._ib.isConnected():
                 connected = True
                 break
-        except Exception as e:
+        except ConnectionError as e:
             print(f"Attempt {i+1} failed: {e}")
             await asyncio.sleep(5)
             
@@ -60,7 +61,10 @@ async def test_ib_gateway_docker_connection():
         
         assert len(bars) > 0, "Should have received at least one bar for AAPL"
         last_bar = bars[-1]
-        print(f"AAPL Last Quote (Daily Bar): Date={last_bar.date}, Close={last_bar.close}, Volume={last_bar.volume}")
+        print(
+            f"AAPL Last Quote (Daily Bar): Date={last_bar.date}, "
+            f"Close={last_bar.close}, Volume={last_bar.volume}"
+        )
         
     finally:
         await client.disconnect()

@@ -1,6 +1,6 @@
 """Unit tests for FundamentalsService cache-first logic."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,7 +29,7 @@ def mock_ibkr():
 def cached_fund_orm():
     obj = MagicMock()
     obj.xml_data = "<xml>cached</xml>"
-    obj.fetched_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    obj.fetched_at = datetime(2025, 1, 1, tzinfo=UTC)
     return obj
 
 
@@ -37,7 +37,7 @@ def cached_fund_orm():
 def cached_earn_orm():
     obj = MagicMock()
     obj.xml_data = "<xml>earnings_cached</xml>"
-    obj.fetched_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    obj.fetched_at = datetime(2025, 1, 1, tzinfo=UTC)
     return obj
 
 

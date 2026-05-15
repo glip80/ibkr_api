@@ -5,7 +5,8 @@ Skip automatically when the DB is unavailable.
 """
 
 import os
-from datetime import datetime, timezone
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -22,12 +23,12 @@ DATABASE_URL = os.getenv(
 
 
 @pytest.fixture(scope="session")
-def anyio_backend():
+def anyio_backend() -> str:
     return "asyncio"
 
 
 @pytest_asyncio.fixture(scope="session")
-async def engine():
+async def engine() -> AsyncGenerator:  # type: ignore[misc]
     eng = create_async_engine(DATABASE_URL, echo=False)
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -38,14 +39,14 @@ async def engine():
 
 
 @pytest_asyncio.fixture
-async def session(engine):
+async def session(engine: AsyncGenerator) -> AsyncGenerator:  # type: ignore[misc]
     factory = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with factory() as s:
         yield s
 
 
 @pytest.mark.asyncio
-async def test_upsert_and_retrieve_bars(session):
+async def test_upsert_and_retrieve_bars(session: AsyncGenerator) -> None:
     repo = QuoteRepository(session)
     response = QuoteResponse(
         symbol="INTC",
@@ -56,11 +57,11 @@ async def test_upsert_and_retrieve_bars(session):
         adjusted=True,
         bars=[
             OHLCVBar(
-                date=datetime(2025, 3, 10, tzinfo=timezone.utc),
+                date=datetime(2025, 3, 10, tzinfo=UTC),
                 open=40.0, high=42.0, low=39.5, close=41.5, volume=8_000_000,
             ),
             OHLCVBar(
-                date=datetime(2025, 3, 11, tzinfo=timezone.utc),
+                date=datetime(2025, 3, 11, tzinfo=UTC),
                 open=41.5, high=43.0, low=41.0, close=42.8, volume=7_500_000,
             ),
         ],
@@ -77,7 +78,7 @@ async def test_upsert_and_retrieve_bars(session):
 
 
 @pytest.mark.asyncio
-async def test_upsert_idempotent(session):
+async def test_upsert_idempotent(session: AsyncGenerator) -> None:
     """Running upsert twice must not create duplicate rows."""
     repo = QuoteRepository(session)
     response = QuoteResponse(
@@ -85,7 +86,7 @@ async def test_upsert_idempotent(session):
         bar_size="1 day", what_to_show="TRADES", adjusted=True,
         bars=[
             OHLCVBar(
-                date=datetime(2025, 4, 1, tzinfo=timezone.utc),
+                date=datetime(2025, 4, 1, tzinfo=UTC),
                 open=800.0, high=820.0, low=795.0, close=815.0, volume=30_000_000,
             )
         ],

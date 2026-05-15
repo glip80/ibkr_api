@@ -1,6 +1,6 @@
 """Unit tests for repository layer using mocked AsyncSession."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,7 +28,7 @@ def sample_response():
         adjusted=True,
         bars=[
             OHLCVBar(
-                date=datetime(2025, 1, 2, tzinfo=timezone.utc),
+                date=datetime(2025, 1, 2, tzinfo=UTC),
                 open=185.0, high=190.0, low=184.0, close=188.0, volume=50_000_000,
             )
         ],

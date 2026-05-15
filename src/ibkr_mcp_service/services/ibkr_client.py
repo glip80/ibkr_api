@@ -31,7 +31,11 @@ class IBKRClient:
     )
     async def _connect_with_retry(self) -> None:
         if not self._ib.isConnected():
-            log.info("connecting_to_ibkr", host=self._settings.ibkr_host, port=self._settings.ibkr_port)
+            log.info(
+                "connecting_to_ibkr",
+                host=self._settings.ibkr_host,
+                port=self._settings.ibkr_port,
+            )
             await self._ib.connectAsync(
                 self._settings.ibkr_host,
                 self._settings.ibkr_port,
