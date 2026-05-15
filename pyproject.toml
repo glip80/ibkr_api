@@ -5,17 +5,22 @@ build-backend = "hatchling.build"
 [project]
 name = "ibkr-mcp-service"
 version = "0.1.0"
-description = "MCP service for IBKR market data via ib_async"
+description = "MCP service for IBKR market data via ib_async with PostgreSQL persistence"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 
 dependencies = [
-    # PyPI package name is ib_async (underscore), not ib-async
-    # https://github.com/ib-api-reloaded/ib_async
     "ib_async>=2.0.1",
     "mcp>=1.0.0",
-    "aiosqlite>=0.20.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.29.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "structlog>=24.1.0",
+    "tenacity>=8.3.0",
+    "alembic>=1.13.0",
+    "psycopg2-binary>=2.9.0",
 ]
 
 [project.optional-dependencies]
@@ -24,21 +29,40 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
     "pytest-mock>=3.14",
+    "mypy>=1.10",
+    "ruff>=0.4.0",
 ]
 
+[tool.mypy]
+python_version = "3.12"
+strict = true
+show_error_codes = true
+explicit_package_bases = true
+namespace_packages = true
+follow_imports = "normal"
+ignore_missing_imports = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+disallow_any_unimported = false
+disallow_any_expr = false
+disallow_any_decorated = false
+disallow_any_explicit = false
+disallow_any_generics = false
+disallow_subclassing_any = false
+
 [project.scripts]
-ibkr-mcp = "ibkr_mcp.server:main"
+ibkr-mcp = "ibkr_mcp_service.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ibkr_mcp"]
+packages = ["src/ibkr_mcp_service"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--cov=ibkr_mcp --cov-report=term-missing --cov-report=xml"
+addopts = "-v"
 
 [tool.coverage.run]
-source = ["ibkr_mcp"]
+source = ["ibkr_mcp_service"]
 omit = ["*/tests/*"]
 
 [tool.ruff]
@@ -47,3 +71,4 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "ANN", "BLE", "A"]
+ignore = ["ANN101", "ANN204"]
