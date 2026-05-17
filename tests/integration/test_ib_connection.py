@@ -6,7 +6,7 @@ import pytest
 import structlog
 
 from ibkr_mcp_service.config import Settings
-from ibkr_mcp_service.services.ibkr_client import IBKRClient
+from ibkr_mcp_service.ibkr.client import IBKRClient
 
 log = structlog.get_logger(__name__)
 

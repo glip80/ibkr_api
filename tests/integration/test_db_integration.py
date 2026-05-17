@@ -13,8 +13,8 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from ibkr_mcp_service.db.base import Base
-from ibkr_mcp_service.db.repository import QuoteRepository
-from ibkr_mcp_service.models.domain import OHLCVBar, QuoteResponse
+from ibkr_mcp_service.models.quote import OHLCVBar, QuoteResponse
+from ibkr_mcp_service.repositories.quote_repo import QuoteRepository
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",

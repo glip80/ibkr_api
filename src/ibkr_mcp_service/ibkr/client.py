@@ -1,10 +1,8 @@
-"""ib_async wrapper for managing the connection to TWS/Gateway."""
-
 import asyncio
 from functools import lru_cache
 
 import structlog
-from ib_async import IB, BarDataList, Contract
+from ib_async import IB, Contract
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ibkr_mcp_service.config import get_settings
@@ -13,15 +11,16 @@ log = structlog.get_logger(__name__)
 
 
 class IBKRClient:
-    """Manages the lifecycle of an ib_async IB connection."""
-
     def __init__(self) -> None:
         self._settings = get_settings()
         self._ib = IB()
         self._lock = asyncio.Lock()
 
+    @property
+    def lock(self) -> asyncio.Lock:
+        return self._lock
+
     async def connect(self) -> None:
-        """Connect to TWS or IB Gateway with retries."""
         await self._connect_with_retry()
 
     @retry(
@@ -45,7 +44,6 @@ class IBKRClient:
             log.info("connected_to_ibkr")
 
     async def disconnect(self) -> None:
-        """Disconnect safely from the IB API."""
         if self._ib.isConnected():
             self._ib.disconnect()
             log.info("disconnected_from_ibkr")
@@ -54,37 +52,9 @@ class IBKRClient:
         self, symbol: str, sec_type: str = "STK",
         exchange: str = "SMART", currency: str = "USD",
     ) -> Contract:
-        """Utility to create an ib_async Contract object."""
         return Contract(symbol=symbol, secType=sec_type, exchange=exchange, currency=currency)
-
-    async def get_historical_data(
-        self, contract: Contract, end_datetime: str, duration_str: str,
-        bar_size_setting: str, what_to_show: str, use_rth: bool,
-    ) -> BarDataList:
-        """Thread-safe call to reqHistoricalDataAsync."""
-        async with self._lock:
-            log.info("requesting_historical_data", symbol=contract.symbol, duration=duration_str)
-            bars = await self._ib.reqHistoricalDataAsync(
-                contract,
-                endDateTime=end_datetime,
-                durationStr=duration_str,
-                barSizeSetting=bar_size_setting,
-                whatToShow=what_to_show,
-                useRTH=use_rth,
-                formatDate=1,
-                keepUpToDate=False,
-            )
-            return bars
-
-    async def get_fundamental_data(self, contract: Contract, report_type: str) -> str:
-        """Thread-safe call to reqFundamentalDataAsync."""
-        async with self._lock:
-            log.info("requesting_fundamental_data", symbol=contract.symbol, type=report_type)
-            xml = await self._ib.reqFundamentalDataAsync(contract, reportType=report_type)
-            return xml
 
 
 @lru_cache
 def get_ibkr_client() -> IBKRClient:
-    """Return a singleton IBKRClient instance."""
     return IBKRClient()

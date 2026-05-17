@@ -3,14 +3,9 @@
 import pytest
 from pydantic import ValidationError
 
-from ibkr_mcp_service.models.domain import (
-    BarSize,
-    EarningsRequest,
-    FundamentalsRequest,
-    QuoteRequest,
-    SecType,
-    WhatToShow,
-)
+from ibkr_mcp_service.models.earnings import EarningsRequest
+from ibkr_mcp_service.models.fundamental import FundamentalsRequest
+from ibkr_mcp_service.models.quote import BarSize, QuoteRequest, SecType, WhatToShow
 
 
 def test_quote_request_defaults():

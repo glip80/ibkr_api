@@ -1,39 +1,26 @@
-"""Business logic for historical market data fetching and caching."""
-
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ibkr_mcp_service.db.repository import QuoteRepository
-from ibkr_mcp_service.models.domain import (
-    OHLCVBar,
-    QuoteRequest,
-    QuoteResponse,
-)
-from ibkr_mcp_service.services.ibkr_client import IBKRClient
+from ibkr_mcp_service.ibkr.client import IBKRClient
+from ibkr_mcp_service.ibkr.quotes import get_historical_data
+from ibkr_mcp_service.models.quote import OHLCVBar, QuoteRequest, QuoteResponse
+from ibkr_mcp_service.repositories.quote_repo import QuoteRepository
 
 log = structlog.get_logger(__name__)
 
 
 class QuoteService:
-    """Orchestrates historical quote fetching with a cache-first strategy."""
-
     def __init__(self, session: AsyncSession, ibkr: IBKRClient) -> None:
         self._repo = QuoteRepository(session)
         self._ibkr = ibkr
 
     async def get_quotes(self, req: QuoteRequest, force_refresh: bool = False) -> QuoteResponse:
-        """Return quotes from cache if available, otherwise fetch from IBKR.
-
-        When *force_refresh* is ``True`` the cache is skipped and fresh data
-        is always fetched from IBKR (the result is still persisted).
-        """
         if not force_refresh:
             cached_bars = await self._repo.get_bars(
                 symbol=req.symbol, sec_type=req.sec_type.value,
                 currency=req.currency, bar_size=req.bar_size.value,
                 what_to_show=req.what_to_show.value, adjusted=req.adjusted,
             )
-
             if cached_bars:
                 log.info("cache_hit_quotes", symbol=req.symbol, count=len(cached_bars))
                 return QuoteResponse(
@@ -43,12 +30,12 @@ class QuoteService:
                     bars=cached_bars, cached=True,
                 )
 
-        # Cache miss – fetch from live API
         contract = self._ibkr.make_contract(
             symbol=req.symbol, sec_type=req.sec_type.value,
             currency=req.currency,
         )
-        raw_bars = await self._ibkr.get_historical_data(
+        raw_bars = await get_historical_data(
+            self._ibkr,
             contract=contract,
             end_datetime=req.end_datetime,
             duration_str=req.duration,
@@ -70,9 +57,8 @@ class QuoteService:
             symbol=req.symbol, sec_type=req.sec_type.value,
             currency=req.currency, bar_size=req.bar_size.value,
             what_to_show=req.what_to_show.value, adjusted=req.adjusted,
-            bars=domain_bars, cached=False,
+            bars=domain_bars,
         )
-
-        # Persist to database
         await self._repo.upsert_bars(response)
+        log.info("fetched_and_cached_quotes", symbol=req.symbol, bars=len(domain_bars))
         return response

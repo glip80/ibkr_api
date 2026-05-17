@@ -1,17 +1,17 @@
-"""Unit tests for SyncManager background sync logic."""
+"""Unit tests for SyncService background sync logic."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ibkr_mcp_service.sync.sync_manager import SyncManager
+from ibkr_mcp_service.services.sync_service import SyncService
 
 
 @pytest.mark.asyncio
 async def test_sync_all_ohlcv_updated():
     """QuoteService.get_quotes is called for each OHLCV key with force_refresh."""
-    sm = SyncManager()
+    sm = SyncService()
 
     ohlcv_row = MagicMock()
     ohlcv_row.symbol = "AAPL"
@@ -26,9 +26,9 @@ async def test_sync_all_ohlcv_updated():
     sm._get_earnings_symbols = AsyncMock(return_value=[])
 
     with (
-        patch("ibkr_mcp_service.sync.sync_manager.QuoteService") as MockQS,
-        patch("ibkr_mcp_service.sync.sync_manager.get_session_factory") as MockFactory,
-        patch("ibkr_mcp_service.sync.sync_manager.get_ibkr_client"),
+        patch("ibkr_mcp_service.services.sync_service.QuoteService") as MockQS,
+        patch("ibkr_mcp_service.services.sync_service.get_session_factory") as MockFactory,
+        patch("ibkr_mcp_service.services.sync_service.get_ibkr_client"),
     ):
         mock_qs_instance = AsyncMock()
         MockQS.return_value = mock_qs_instance
@@ -45,7 +45,7 @@ async def test_sync_all_ohlcv_updated():
 @pytest.mark.asyncio
 async def test_sync_all_fundamentals_updated():
     """FundamentalsService.get_fundamentals is called for each fund key."""
-    sm = SyncManager()
+    sm = SyncService()
 
     fund_row = MagicMock()
     fund_row.symbol = "MSFT"
@@ -59,10 +59,10 @@ async def test_sync_all_fundamentals_updated():
 
     with (
         patch(
-            "ibkr_mcp_service.sync.sync_manager.FundamentalsService"
+            "ibkr_mcp_service.services.sync_service.FundamentalsService"
         ) as MockFS,
-        patch("ibkr_mcp_service.sync.sync_manager.get_session_factory") as MockFactory,
-        patch("ibkr_mcp_service.sync.sync_manager.get_ibkr_client"),
+        patch("ibkr_mcp_service.services.sync_service.get_session_factory") as MockFactory,
+        patch("ibkr_mcp_service.services.sync_service.get_ibkr_client"),
     ):
         mock_fs_instance = AsyncMock()
         MockFS.return_value = mock_fs_instance
@@ -79,7 +79,7 @@ async def test_sync_all_fundamentals_updated():
 @pytest.mark.asyncio
 async def test_sync_all_earnings_updated():
     """FundamentalsService.get_earnings is called for each earnings symbol."""
-    sm = SyncManager()
+    sm = SyncService()
 
     earn_row = MagicMock()
     earn_row.symbol = "TSLA"
@@ -92,36 +92,37 @@ async def test_sync_all_earnings_updated():
 
     with (
         patch(
-            "ibkr_mcp_service.sync.sync_manager.FundamentalsService"
-        ) as MockFS,
-        patch("ibkr_mcp_service.sync.sync_manager.get_session_factory") as MockFactory,
-        patch("ibkr_mcp_service.sync.sync_manager.get_ibkr_client"),
+            "ibkr_mcp_service.services.sync_service.EarningsService"
+        ) as MockES,
+        patch("ibkr_mcp_service.services.sync_service.get_session_factory") as MockFactory,
+        patch("ibkr_mcp_service.services.sync_service.get_ibkr_client"),
     ):
-        mock_fs_instance = AsyncMock()
-        MockFS.return_value = mock_fs_instance
+        mock_es_instance = AsyncMock()
+        MockES.return_value = mock_es_instance
         mock_session = AsyncMock()
         MockFactory.return_value = MagicMock(return_value=mock_session)
 
         await sm._sync_all()
 
-    mock_fs_instance.get_earnings.assert_called_once()
-    _call_args, call_kwargs = mock_fs_instance.get_earnings.call_args
+    mock_es_instance.get_earnings.assert_called_once()
+    _call_args, call_kwargs = mock_es_instance.get_earnings.call_args
     assert call_kwargs.get("force_refresh") is True
 
 
 @pytest.mark.asyncio
 async def test_sync_all_empty_tables():
     """When all tables are empty, no services should be called."""
-    sm = SyncManager()
+    sm = SyncService()
     sm._get_ohlcv_keys = AsyncMock(return_value=[])
     sm._get_fundamentals_keys = AsyncMock(return_value=[])
     sm._get_earnings_symbols = AsyncMock(return_value=[])
 
     with (
-        patch("ibkr_mcp_service.sync.sync_manager.QuoteService") as MockQS,
-        patch("ibkr_mcp_service.sync.sync_manager.FundamentalsService") as MockFS,
-        patch("ibkr_mcp_service.sync.sync_manager.get_session_factory") as MockFactory,
-        patch("ibkr_mcp_service.sync.sync_manager.get_ibkr_client"),
+        patch("ibkr_mcp_service.services.sync_service.QuoteService") as MockQS,
+        patch("ibkr_mcp_service.services.sync_service.FundamentalsService") as MockFS,
+        patch("ibkr_mcp_service.services.sync_service.EarningsService") as MockES,
+        patch("ibkr_mcp_service.services.sync_service.get_session_factory") as MockFactory,
+        patch("ibkr_mcp_service.services.sync_service.get_ibkr_client"),
     ):
         mock_session = AsyncMock()
         MockFactory.return_value = MagicMock(return_value=mock_session)
@@ -130,11 +131,12 @@ async def test_sync_all_empty_tables():
 
     MockQS.assert_not_called()
     MockFS.assert_not_called()
+    MockES.assert_not_called()
 
 
 def test_stop_sets_flag():
     """stop() sets _running to False."""
-    sm = SyncManager()
+    sm = SyncService()
     assert sm._running is False
     sm._running = True
     sm.stop()
@@ -144,7 +146,7 @@ def test_stop_sets_flag():
 @pytest.mark.asyncio
 async def test_run_forever_loops_until_stopped():
     """run_forever loops calling _sync_all until stop() is called."""
-    sm = SyncManager()
+    sm = SyncService()
     sm._sync_all = AsyncMock()
     sm._running = True
 

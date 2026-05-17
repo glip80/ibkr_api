@@ -9,7 +9,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from ibkr_mcp_service.db.base import Base
-from ibkr_mcp_service.db.orm_models import *  # noqa: F401,F403 – register all ORM models
+from ibkr_mcp_service.db.entities import *  # noqa: F401,F403
 
 config = context.config
 

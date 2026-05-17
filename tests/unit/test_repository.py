@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ibkr_mcp_service.db.repository import QuoteRepository
-from ibkr_mcp_service.models.domain import OHLCVBar, QuoteResponse
+from ibkr_mcp_service.models.quote import OHLCVBar, QuoteResponse
+from ibkr_mcp_service.repositories.quote_repo import QuoteRepository
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ async def test_upsert_bars_calls_execute(mock_session, sample_response):
     mock_result.rowcount = 1
     mock_session.execute.return_value = mock_result
 
-    with patch("ibkr_mcp_service.db.repository.insert") as mock_insert:
+    with patch("ibkr_mcp_service.repositories.quote_repo.insert") as mock_insert:
         mock_stmt = MagicMock()
         mock_stmt.on_conflict_do_update.return_value = mock_stmt
         mock_insert.return_value = mock_stmt

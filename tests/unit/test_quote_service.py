@@ -5,10 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ibkr_mcp_service.models.domain import (
-    OHLCVBar,
-    QuoteRequest,
-)
+from ibkr_mcp_service.models.quote import OHLCVBar, QuoteRequest
 from ibkr_mcp_service.services.quote_service import QuoteService
 
 
@@ -19,7 +16,9 @@ def mock_session():
 
 @pytest.fixture
 def mock_ibkr():
-    return AsyncMock()
+    client = AsyncMock()
+    client.make_contract = MagicMock(return_value=MagicMock())
+    return client
 
 
 @pytest.fixture
@@ -37,7 +36,10 @@ async def test_get_quotes_returns_cache_when_available(mock_session, mock_ibkr, 
     """When the DB has bars, IBKR should NOT be called."""
     req = QuoteRequest(symbol="AAPL")
 
-    with patch("ibkr_mcp_service.services.quote_service.QuoteRepository") as MockRepo:
+    with (
+        patch("ibkr_mcp_service.services.quote_service.QuoteRepository") as MockRepo,
+        patch("ibkr_mcp_service.services.quote_service.get_historical_data") as mock_ghd,
+    ):
         repo_instance = AsyncMock()
         repo_instance.get_bars.return_value = sample_bars
         MockRepo.return_value = repo_instance
@@ -47,7 +49,7 @@ async def test_get_quotes_returns_cache_when_available(mock_session, mock_ibkr, 
 
     assert resp.cached is True
     assert len(resp.bars) == 1
-    mock_ibkr.get_historical_data.assert_not_called()
+    mock_ghd.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -66,14 +68,19 @@ async def test_get_quotes_fetches_from_ibkr_on_cache_miss(mock_session, mock_ibk
     raw_bar.wap = 253.0
     raw_bar.barCount = 1500
 
-    mock_ibkr.get_historical_data = AsyncMock(return_value=[raw_bar])
-    mock_ibkr.make_contract = MagicMock(return_value=MagicMock())
-
-    with patch("ibkr_mcp_service.services.quote_service.QuoteRepository") as MockRepo:
+    with (
+        patch("ibkr_mcp_service.services.quote_service.QuoteRepository") as MockRepo,
+        patch(
+            "ibkr_mcp_service.services.quote_service.get_historical_data",
+            new_callable=AsyncMock,
+        ) as mock_ghd,
+    ):
         repo_instance = AsyncMock()
         repo_instance.get_bars.return_value = []   # cache miss
         repo_instance.upsert_bars = AsyncMock()
         MockRepo.return_value = repo_instance
+
+        mock_ghd.return_value = [raw_bar]
 
         svc = QuoteService(mock_session, mock_ibkr)
         resp = await svc.get_quotes(req)

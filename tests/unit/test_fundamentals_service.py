@@ -5,10 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ibkr_mcp_service.models.domain import (
-    EarningsRequest,
-    FundamentalsRequest,
-)
+from ibkr_mcp_service.models.earnings import EarningsRequest
+from ibkr_mcp_service.models.fundamental import FundamentalsRequest
+from ibkr_mcp_service.services.earnings_service import EarningsService
 from ibkr_mcp_service.services.fundamentals_service import FundamentalsService
 
 
@@ -21,7 +20,9 @@ def mock_session():
 def mock_ibkr():
     client = AsyncMock()
     client.make_contract = MagicMock(return_value=MagicMock())
-    client.get_fundamental_data = AsyncMock(return_value="<xml>response</xml>")
+    client.lock = MagicMock()
+    client.lock.__aenter__ = AsyncMock()
+    client.lock.__aexit__ = AsyncMock()
     return client
 
 
@@ -71,19 +72,26 @@ async def test_get_fundamentals_fetches_from_ibkr_on_cache_miss(
     """When the DB is empty, IBKR is called and results are persisted."""
     req = FundamentalsRequest(symbol="MSFT")
 
-    with patch(
-        "ibkr_mcp_service.services.fundamentals_service.FundamentalsRepository"
-    ) as MockRepo:
+    with (
+        patch(
+            "ibkr_mcp_service.services.fundamentals_service.FundamentalsRepository"
+        ) as MockRepo,
+        patch(
+            "ibkr_mcp_service.services.fundamentals_service.get_fundamental_data",
+            new_callable=AsyncMock,
+        ) as mock_get_fd,
+    ):
         repo_instance = AsyncMock()
         repo_instance.get.return_value = None
         MockRepo.return_value = repo_instance
+        mock_get_fd.return_value = "<xml>response</xml>"
 
         svc = FundamentalsService(mock_session, mock_ibkr)
         resp = await svc.get_fundamentals(req)
 
     assert resp.cached is False
     assert resp.xml_data == "<xml>response</xml>"
-    mock_ibkr.get_fundamental_data.assert_called_once()
+    mock_get_fd.assert_called_once()
     repo_instance.upsert.assert_called_once_with(resp)
 
 
@@ -94,19 +102,26 @@ async def test_get_fundamentals_force_refresh_skips_cache(
     """When force_refresh=True, IBKR is called even if cache exists."""
     req = FundamentalsRequest(symbol="GOOGL")
 
-    with patch(
-        "ibkr_mcp_service.services.fundamentals_service.FundamentalsRepository"
-    ) as MockRepo:
+    with (
+        patch(
+            "ibkr_mcp_service.services.fundamentals_service.FundamentalsRepository"
+        ) as MockRepo,
+        patch(
+            "ibkr_mcp_service.services.fundamentals_service.get_fundamental_data",
+            new_callable=AsyncMock,
+        ) as mock_get_fd,
+    ):
         repo_instance = AsyncMock()
         repo_instance.get.return_value = cached_fund_orm
         MockRepo.return_value = repo_instance
+        mock_get_fd.return_value = "<xml>response</xml>"
 
         svc = FundamentalsService(mock_session, mock_ibkr)
         resp = await svc.get_fundamentals(req, force_refresh=True)
 
     assert resp.cached is False
     assert resp.xml_data == "<xml>response</xml>"
-    mock_ibkr.get_fundamental_data.assert_called_once()
+    mock_get_fd.assert_called_once()
     repo_instance.upsert.assert_called_once()
 
 
@@ -117,19 +132,25 @@ async def test_get_earnings_returns_cache_when_available(
     """When the DB has cached earnings, IBKR should NOT be called."""
     req = EarningsRequest(symbol="AAPL")
 
-    with patch(
-        "ibkr_mcp_service.services.fundamentals_service.EarningsRepository"
-    ) as MockRepo:
+    with (
+        patch(
+            "ibkr_mcp_service.services.earnings_service.EarningsRepository"
+        ) as MockRepo,
+        patch(
+            "ibkr_mcp_service.services.earnings_service.get_earnings_data",
+            new_callable=AsyncMock,
+        ) as mock_get_ed,
+    ):
         repo_instance = AsyncMock()
         repo_instance.get.return_value = cached_earn_orm
         MockRepo.return_value = repo_instance
 
-        svc = FundamentalsService(mock_session, mock_ibkr)
+        svc = EarningsService(mock_session, mock_ibkr)
         resp = await svc.get_earnings(req)
 
     assert resp.cached is True
     assert "earnings_cached" in resp.xml_data
-    mock_ibkr.get_fundamental_data.assert_not_called()
+    mock_get_ed.assert_not_called()
     repo_instance.upsert.assert_not_called()
 
 
@@ -140,19 +161,26 @@ async def test_get_earnings_fetches_from_ibkr_on_cache_miss(
     """When the DB is empty, IBKR is called and results are persisted."""
     req = EarningsRequest(symbol="TSLA")
 
-    with patch(
-        "ibkr_mcp_service.services.fundamentals_service.EarningsRepository"
-    ) as MockRepo:
+    with (
+        patch(
+            "ibkr_mcp_service.services.earnings_service.EarningsRepository"
+        ) as MockRepo,
+        patch(
+            "ibkr_mcp_service.services.earnings_service.get_earnings_data",
+            new_callable=AsyncMock,
+        ) as mock_get_ed,
+    ):
         repo_instance = AsyncMock()
         repo_instance.get.return_value = None
         MockRepo.return_value = repo_instance
+        mock_get_ed.return_value = "<xml>response</xml>"
 
-        svc = FundamentalsService(mock_session, mock_ibkr)
+        svc = EarningsService(mock_session, mock_ibkr)
         resp = await svc.get_earnings(req)
 
     assert resp.cached is False
     assert resp.xml_data == "<xml>response</xml>"
-    mock_ibkr.get_fundamental_data.assert_called_once()
+    mock_get_ed.assert_called_once()
     repo_instance.upsert.assert_called_once_with(resp)
 
 
@@ -163,16 +191,23 @@ async def test_get_earnings_force_refresh_skips_cache(
     """When force_refresh=True, IBKR is called even if cache exists."""
     req = EarningsRequest(symbol="NVDA")
 
-    with patch(
-        "ibkr_mcp_service.services.fundamentals_service.EarningsRepository"
-    ) as MockRepo:
+    with (
+        patch(
+            "ibkr_mcp_service.services.earnings_service.EarningsRepository"
+        ) as MockRepo,
+        patch(
+            "ibkr_mcp_service.services.earnings_service.get_earnings_data",
+            new_callable=AsyncMock,
+        ) as mock_get_ed,
+    ):
         repo_instance = AsyncMock()
         repo_instance.get.return_value = cached_earn_orm
         MockRepo.return_value = repo_instance
+        mock_get_ed.return_value = "<xml>response</xml>"
 
-        svc = FundamentalsService(mock_session, mock_ibkr)
+        svc = EarningsService(mock_session, mock_ibkr)
         resp = await svc.get_earnings(req, force_refresh=True)
 
     assert resp.cached is False
-    mock_ibkr.get_fundamental_data.assert_called_once()
+    mock_get_ed.assert_called_once()
     repo_instance.upsert.assert_called_once()

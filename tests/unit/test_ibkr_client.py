@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ibkr_mcp_service.services.ibkr_client import IBKRClient
+from ibkr_mcp_service.ibkr.client import IBKRClient
 
 
 @pytest.fixture
@@ -17,6 +17,9 @@ def ibkr_client():
     client._ib.disconnect = MagicMock()
     client._ib.reqHistoricalDataAsync = AsyncMock()
     client._ib.reqFundamentalDataAsync = AsyncMock()
+    client._lock = MagicMock()
+    client._lock.__aenter__ = AsyncMock()
+    client._lock.__aexit__ = AsyncMock()
     return client
 
 
@@ -73,13 +76,20 @@ def test_make_contract_applies_defaults(ibkr_client):
 
 
 @pytest.mark.asyncio
-async def test_get_historical_data_returns_bars(ibkr_client):
-    """get_historical_data should delegate to ib.reqHistoricalDataAsync."""
-    expected_bars = MagicMock()
-    ibkr_client._ib.reqHistoricalDataAsync.return_value = expected_bars
+async def test_get_historical_data_returns_bars():
+    from ibkr_mcp_service.ibkr.quotes import get_historical_data
 
-    contract = ibkr_client.make_contract(symbol="AAPL")
-    bars = await ibkr_client.get_historical_data(
+    client = MagicMock()
+    client.lock = MagicMock()
+    client.lock.__aenter__ = AsyncMock()
+    client.lock.__aexit__ = AsyncMock()
+    expected_bars = MagicMock()
+    client._ib = MagicMock()
+    client._ib.reqHistoricalDataAsync = AsyncMock(return_value=expected_bars)
+
+    contract = MagicMock()
+    bars = await get_historical_data(
+        client,
         contract=contract,
         end_datetime="",
         duration_str="1 Y",
@@ -89,19 +99,25 @@ async def test_get_historical_data_returns_bars(ibkr_client):
     )
 
     assert bars is expected_bars
-    ibkr_client._ib.reqHistoricalDataAsync.assert_called_once()
+    client._ib.reqHistoricalDataAsync.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_get_fundamental_data_returns_xml(ibkr_client):
-    """get_fundamental_data should delegate to ib.reqFundamentalDataAsync."""
-    expected_xml = "<xml>financials</xml>"
-    ibkr_client._ib.reqFundamentalDataAsync.return_value = expected_xml
+async def test_get_fundamental_data_returns_xml():
+    from ibkr_mcp_service.ibkr.fundamentals import get_fundamental_data
 
-    contract = ibkr_client.make_contract(symbol="AAPL")
-    xml = await ibkr_client.get_fundamental_data(
-        contract=contract, report_type="ReportsFinSummary",
+    client = MagicMock()
+    client.lock = MagicMock()
+    client.lock.__aenter__ = AsyncMock()
+    client.lock.__aexit__ = AsyncMock()
+    expected_xml = "<xml>financials</xml>"
+    client._ib = MagicMock()
+    client._ib.reqFundamentalDataAsync = AsyncMock(return_value=expected_xml)
+
+    contract = MagicMock()
+    xml = await get_fundamental_data(
+        client, contract=contract, report_type="ReportsFinSummary",
     )
 
     assert xml == expected_xml
-    ibkr_client._ib.reqFundamentalDataAsync.assert_called_once()
+    client._ib.reqFundamentalDataAsync.assert_called_once()

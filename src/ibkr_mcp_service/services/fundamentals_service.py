@@ -1,33 +1,22 @@
-"""Business logic for fetching and caching fundamental data."""
-
-
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ibkr_mcp_service.db.repository import EarningsRepository, FundamentalsRepository
-from ibkr_mcp_service.models.domain import (
-    EarningsRequest,
-    EarningsResponse,
-    FundamentalsRequest,
-    FundamentalsResponse,
-)
-from ibkr_mcp_service.services.ibkr_client import IBKRClient
+from ibkr_mcp_service.ibkr.client import IBKRClient
+from ibkr_mcp_service.ibkr.fundamentals import get_fundamental_data
+from ibkr_mcp_service.models.fundamental import FundamentalsRequest, FundamentalsResponse
+from ibkr_mcp_service.repositories.fundamental_repo import FundamentalsRepository
 
 log = structlog.get_logger(__name__)
 
 
 class FundamentalsService:
-    """Orchestrates fundamental and earnings data fetching with DB caching."""
-
     def __init__(self, session: AsyncSession, ibkr: IBKRClient) -> None:
         self._fund_repo = FundamentalsRepository(session)
-        self._earn_repo = EarningsRepository(session)
         self._ibkr = ibkr
 
     async def get_fundamentals(
         self, req: FundamentalsRequest, force_refresh: bool = False
     ) -> FundamentalsResponse:
-        """Return fundamental data, using the cache when available."""
         if not force_refresh:
             cached = await self._fund_repo.get(req.symbol, req.report_type)
             if cached:
@@ -44,35 +33,10 @@ class FundamentalsService:
             symbol=req.symbol, sec_type=req.sec_type.value,
             exchange=req.exchange, currency=req.currency,
         )
-        xml = await self._ibkr.get_fundamental_data(contract, req.report_type)
+        xml = await get_fundamental_data(self._ibkr, contract, req.report_type)
         response = FundamentalsResponse(
             symbol=req.symbol, report_type=req.report_type, xml_data=xml,
             sec_type=req.sec_type.value, currency=req.currency,
         )
         await self._fund_repo.upsert(response)
-        return response
-
-    async def get_earnings(
-        self, req: EarningsRequest, force_refresh: bool = False
-    ) -> EarningsResponse:
-        """Return earnings data (CalendarReport), using the cache when available."""
-        if not force_refresh:
-            cached = await self._earn_repo.get(req.symbol)
-            if cached:
-                log.info("cache_hit_earnings", symbol=req.symbol)
-                return EarningsResponse(
-                    symbol=req.symbol, xml_data=cached.xml_data,
-                    cached=True, fetched_at=cached.fetched_at,
-                )
-
-        contract = self._ibkr.make_contract(
-            symbol=req.symbol, sec_type=req.sec_type.value,
-            exchange=req.exchange, currency=req.currency,
-        )
-        xml = await self._ibkr.get_fundamental_data(contract, "CalendarReport")
-        response = EarningsResponse(
-            symbol=req.symbol, xml_data=xml,
-            sec_type=req.sec_type.value, currency=req.currency,
-        )
-        await self._earn_repo.upsert(response)
         return response
